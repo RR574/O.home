@@ -57,13 +57,6 @@ export const DEFAULT_MENU: MenuItem[] = [
     ],
   },
   {
-    label: '커미션',
-    children: [
-      { label: '커미션', href: '/comm' },
-      { label: '신청자 리스트', href: '/comm-apply' },
-    ],
-  },
-  {
     label: '기록',
     children: [
       { label: '스케줄러', href: '/cal' },
