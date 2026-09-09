@@ -233,12 +233,23 @@ async updateProfile(patch) {
       return n;
     },
 
-    subscribe(coll, onChange) {
-      const ch = sb.channel(`ohome:${coll}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: coll }, () => onChange())
-        .subscribe();
-      return () => { void sb.removeChannel(ch); };
-    },
+subscribe(coll, onChange) {
+  // 같은 collection을 여러 화면/컴포넌트에서 동시에 구독할 수 있으므로
+  // 각 구독마다 고유한 Realtime channel 이름을 사용한다.
+  const channelId = crypto.randomUUID();
+
+  const ch = sb.channel(`ohome:${coll}:${channelId}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: coll },
+      () => onChange()
+    )
+    .subscribe();
+
+  return () => {
+    void sb.removeChannel(ch);
+  };
+},
 
     async fetchSetting<T>(key: string) {
       const { data, error } = await sb.from('site_settings').select('value').eq('key', key).maybeSingle();
