@@ -19,6 +19,8 @@ import { RelQuestionSet, RELQ_SEED, RELQ_KEY, CP_LABEL } from '@/lib/relqStore';
 import { putBlob } from '@/lib/blobStore';
 import { GrantsEditor } from '@/components/chars/GrantsEditor';
 import { TrpgLog, TRPG_SEED } from '@/lib/galleryStore';
+import { TrpgChar, TCHAR_SEED } from '@/lib/tcharStore';
+
 import { RpRoom, RP_SEED } from '@/lib/rpStore';
 import { useFonts } from '@/lib/fontStore';
 import { Tip, KInput, KTextarea, KSelect, KRadio, KCheck } from '@/components/ui/Kit';
@@ -243,6 +245,8 @@ export default function RelDetailPage() {
   const { familyOf } = useFonts();
   const [rels, setRels, loaded] = useLocalList<Relation>('ohome.rels.v1', REL_SEED);
   const [chars, setChars, charsLoaded] = useLocalList<Character>('ohome.chars.v1', CHAR_SEED);
+  const [tchars, , tcharsLoaded] = useLocalList<TrpgChar>('ohome.tchars.v1', TCHAR_SEED);
+  
   const [logs] = useLocalList<TrpgLog>('ohome.trpg.v1', TRPG_SEED);
   const [rooms] = useLocalList<RpRoom>('ohome.rp.v1', RP_SEED);
   const [tab, setTab] = useState<'tl' | 'qa'>('tl');
@@ -308,7 +312,7 @@ export default function RelDetailPage() {
   const [qaPickPos, setQaPickPos] = useState<{ left: number; top: number } | null>(null);
   // 관리자 추가 모달
   const [memberOpen, setMemberOpen] = useState(false);
-  const [mMode, setMMode] = useState<'exist' | 'new'>('exist');
+ const [mMode, setMMode] = useState<'exist' | 'trpg' | 'new'>('exist');
   const [mCharId, setMCharId] = useState('');
   const [mQuery, setMQuery] = useState('');   // 기존 캐릭터 검색어
   const [mQuote, setMQuote] = useState('');
@@ -387,14 +391,36 @@ export default function RelDetailPage() {
 
   // 삭제된 캐릭터를 가리키는 멤버 자동 정리 — 카드도 안 뜨고 [＋ 멤버 추가]도
   // 안 나오는 유령 슬롯이 남지 않게 (캐릭터 삭제 기능 도입에 따른 정합성 보정)
-  useEffect(() => {
-    if (!loaded || !charsLoaded || !rel) return;
-    const alive = rel.members.filter(m => chars.some(c => c.id === m.charId));
-    if (alive.length !== rel.members.length) {
-      setRels(rels.map(r => (r.id === rel.id ? { ...r, members: alive } : r)));
+useEffect(() => {
+  if (!loaded || !charsLoaded || !tcharsLoaded || !rel) return;
+
+  const alive = rel.members.filter(m => {
+    if (m.charId.startsWith('trpg:')) {
+      const trpgId = m.charId.slice('trpg:'.length);
+      return tchars.some(c => c.id === trpgId);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loaded, charsLoaded, rel?.id, rel?.members.length, chars.length]);
+
+    return chars.some(c => c.id === m.charId);
+  });
+
+  if (alive.length !== rel.members.length) {
+    setRels(
+      rels.map(r =>
+        r.id === rel.id ? { ...r, members: alive } : r
+      )
+    );
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [
+  loaded,
+  charsLoaded,
+  tcharsLoaded,
+  rel?.id,
+  rel?.members.length,
+  chars.length,
+  tchars.length,
+]);
 
   const isDuo = rel ? (rel.kind ? rel.kind === 'pair' : rel.members.length === 2) : false;
   const au = rel?.aus.find(a => a.id === auId) ?? rel?.aus[0];
@@ -457,17 +483,67 @@ export default function RelDetailPage() {
 
   // 멤버 캐릭터 — AU 선택 시 그 캐릭터의 AU 프로필(이름·사진 등)로 합성해 표시 (v1.9)
   const auCharKey = rel && !isBaseAu && au ? `${rel.id}:${au.id}` : null;
-  const charOf = (cid: string) => {
-    const c = findChar(chars, cid);
-    return c && auCharKey ? charWithAu(c, auCharKey) : c;
-  };
-  // AU 선택 중 그 캐릭터의 AU 프로필 미등록 여부 + 캐릭터 페이지 링크(au 유지) (v1.9)
-  const auUnregOf = (cid: string) => !!auCharKey && !findChar(chars, cid)?.auProfiles?.[auCharKey];
-  // 캐릭터 별명 주소 우선 (v2.0) — 없으면 id 그대로
-  const charHref = (cid: string) => {
-    const base = charPath(charOf(cid) ?? { id: cid });
-    return auCharKey ? `${base}?au=${encodeURIComponent(auCharKey)}` : base;
-  };
+const charOf = (cid: string): Character | undefined => {
+  // TRPG 캐릭터
+  if (cid.startsWith('trpg:')) {
+    const tid = cid.slice('trpg:'.length);
+    const tc = tchars.find(c => c.id === tid);
+    if (!tc) return undefined;
+
+    const face = tc.faces[0];
+
+    return {
+      id: cid,
+      name: tc.name,
+
+      // 자관에서는 이름 + 대표 인장만 사용
+      sub: '',
+      color: '#6b7280',
+      colors: [],
+      specs: [],
+      tabs: [],
+      basicHtml: '',
+      visibility: 'public',
+
+      thumbClass: face?.ph ?? tc.ph ?? '',
+      thumbId: face?.imgId,
+      thumbCrop:
+        (tc.imgMode === 'standing' ? tc.crop : face?.crop) ??
+        face?.crop,
+
+      arts: [],
+      own: true,
+    };
+  }
+
+  // 기존 캐릭터는 원래 방식 그대로
+  const c = findChar(chars, cid);
+  return c && auCharKey ? charWithAu(c, auCharKey) : c;
+};
+
+
+// TRPG 캐릭터에는 일반 캐릭터용 AU 프로필을 적용하지 않음
+const auUnregOf = (cid: string) => {
+  if (cid.startsWith('trpg:')) return false;
+
+  return !!auCharKey &&
+    !findChar(chars, cid)?.auProfiles?.[auCharKey];
+};
+
+
+// 클릭했을 때 TRPG 캐릭터 상세 페이지로 이동
+const charHref = (cid: string) => {
+  if (cid.startsWith('trpg:')) {
+    const tid = cid.slice('trpg:'.length);
+    return `/tchars/${tid}`;
+  }
+
+  const base = charPath(charOf(cid) ?? { id: cid });
+
+  return auCharKey
+    ? `${base}?au=${encodeURIComponent(auCharKey)}`
+    : base;
+};
   const sideOf = (cid: string) => (isDuo && rel?.members[1]?.charId === cid ? 'r' : 'l');
 
   // AU 전환으로 QUESTIONS 섹션이 없는 AU에 오면 타임라인 탭으로 (v1.9)
@@ -1308,6 +1384,15 @@ export default function RelDetailPage() {
         <div style={{ display: 'grid', gap: 10 }}>
           <div style={{ display: 'flex', gap: 16 }}>
             <KRadio name="mm" value="exist" current={mMode} onChange={v => setMMode(v as 'exist')} label="기존 캐릭터" />
+            
+            <KRadio
+  name="mm"
+  value="trpg"
+  current={mMode}
+  onChange={v => setMMode(v as 'trpg')}
+  label="TRPG 캐릭터"
+/>
+            
             <KRadio name="mm" value="new" current={mMode} onChange={v => setMMode(v as 'new')} label="새 상대 캐릭터" />
           </div>
           {mMode === 'exist' ? (
@@ -1336,7 +1421,84 @@ export default function RelDetailPage() {
                 {candidates.length === 0 && <p className="hint" style={{ padding: 10 }}>추가할 수 있는 캐릭터가 없습니다</p>}
               </div>
             </div>
-          ) : (
+) : mMode === 'trpg' ? (
+  <div>
+    <KInput
+      placeholder="TRPG 캐릭터 검색"
+      value={mQuery}
+      onChange={e => setMQuery(e.target.value)}
+    />
+
+    <div
+      style={{
+        marginTop: 6,
+        maxHeight: 190,
+        overflowY: 'auto',
+        border: '1.5px solid var(--line)',
+        borderRadius: 9,
+      }}
+    >
+      {tchars
+        .filter(c => !rel.members.some(m => m.charId === `trpg:${c.id}`))
+        .filter(c => {
+          const s = mQuery.trim().toLowerCase();
+          return (
+            !s ||
+            c.name.toLowerCase().includes(s) ||
+            (c.scenario ?? '').toLowerCase().includes(s) ||
+            (c.rule ?? '').toLowerCase().includes(s) ||
+            (c.role ?? '').toLowerCase().includes(s)
+          );
+        })
+        .map(c => {
+          const cid = `trpg:${c.id}`;
+
+          return (
+            <div
+              key={c.id}
+              onClick={() => setMCharId(mCharId === cid ? '' : cid)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '8px 11px',
+                cursor: 'var(--cur-pointer,pointer)',
+                background:
+                  mCharId === cid
+                    ? 'rgba(127,127,127,.12)'
+                    : undefined,
+                borderBottom: '1px dashed var(--line)',
+                transition: '.13s',
+              }}
+            >
+              <b style={{ fontSize: 12.5 }}>{c.name}</b>
+
+
+              {mCharId === cid && (
+                <span
+                  style={{
+                    marginLeft: 'auto',
+                    color: 'var(--accent)',
+                    fontWeight: 700,
+                  }}
+                >
+                  ✓
+                </span>
+              )}
+            </div>
+          );
+        })}
+
+      {tchars.filter(
+        c => !rel.members.some(m => m.charId === `trpg:${c.id}`)
+      ).length === 0 && (
+        <p className="hint" style={{ padding: 10 }}>
+          추가할 수 있는 TRPG 캐릭터가 없습니다
+        </p>
+      )}
+    </div>
+  </div>
+) : (
             <>
               <div style={{ display: 'flex', gap: 8 }}>
                 <KInput placeholder="이름" value={mName} onChange={e => setMName(e.target.value)} />
