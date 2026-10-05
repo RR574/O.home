@@ -10,6 +10,25 @@ import { visFloorOf } from '../visFloor';
 const BUCKET = 'ohome';
 const PROBE = ['profiles', 'site_settings', 'posts', 'characters'];
 
+function authErrorMessage(error: { message?: string; code?: string; status?: number } | null | undefined, fallback: string): string {
+  const message = error?.message ?? '';
+  const code = error?.code ?? '';
+
+  if (
+    error?.status === 429 ||
+    code === 'over_email_send_rate_limit' ||
+    /email rate limit exceeded/i.test(message)
+  ) {
+    return '인증메일 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.';
+  }
+
+  if (code === 'invalid_credentials' || /invalid login credentials/i.test(message)) {
+    return '이메일 또는 비밀번호가 올바르지 않습니다.';
+  }
+
+  return message || fallback;
+}
+
 export async function createSupabaseBackend(
   cfg: Extract<BackendConfig, { kind: 'supabase' }>,
 ): Promise<Backend> {
@@ -83,19 +102,19 @@ export async function createSupabaseBackend(
 
     async signIn(id, password) {
       const { error } = await sb.auth.signInWithPassword({ email: id, password });
-      return error ? { ok: false, error: error.message } : { ok: true };
+      return error ? { ok: false, error: authErrorMessage(error, '로그인에 실패했습니다.') } : { ok: true };
     },
 
     async signUp(id, password, nickname) {
       const { error } = await sb.auth.signUp({ email: id, password, options: { data: { nickname } } });
-      return error ? { ok: false, error: error.message } : { ok: true };
+      return error ? { ok: false, error: authErrorMessage(error, '가입에 실패했습니다.') } : { ok: true };
     },
 
     async signOut() { await sb.auth.signOut(); },
 
     async resetPassword(email) {
       const { error } = await sb.auth.resetPasswordForEmail(email);
-      return error ? { ok: false, error: error.message } : { ok: true };
+      return error ? { ok: false, error: authErrorMessage(error, '재설정 메일을 보내지 못했습니다.') } : { ok: true };
     },
 
 async updateProfile(patch) {
