@@ -25,6 +25,7 @@ export default function LoginPage() {
   const [sEmail, setSEmail] = useState('');   // 가입 이메일 (v1.9 — 아이디 찾기/비번 리셋용)
   const [sCode, setSCode] = useState('');
   const [sErr, setSErr] = useState('');
+  const [signupBusy, setSignupBusy] = useState(false);
   // 아이디/비밀번호 찾기
   const [fEmail, setFEmail] = useState('');
   const [fErr, setFErr] = useState('');
@@ -42,12 +43,18 @@ export default function LoginPage() {
   };
 
   const doSignup = async () => {
+    if (signupBusy) return;
     setSErr('');
-    // 서버 모드에서는 아이디가 곧 이메일 — 따로 받지 않고 그대로 쓴다
-    const r = await signup(sId.trim(), sPw, sNick.trim(), sCode.trim(), (mock ? sEmail : sId).trim());
-    if (!r.ok) { setSErr(r.error ?? '가입 실패'); return; }
-    setSignupOpen(false);
-    toast(mock ? '가입되었습니다 — 만든 계정으로 로그인해 보세요' : '가입되었습니다 — 이메일 인증 후 로그인해 주세요');
+    setSignupBusy(true);
+    try {
+      // 서버 모드에서는 아이디가 곧 이메일 — 따로 받지 않고 그대로 쓴다
+      const r = await signup(sId.trim(), sPw, sNick.trim(), sCode.trim(), (mock ? sEmail : sId).trim());
+      if (!r.ok) { setSErr(r.error ?? '가입 실패'); return; }
+      setSignupOpen(false);
+      toast(mock ? '가입되었습니다 — 만든 계정으로 로그인해 보세요' : '가입되었습니다 — 이메일 인증 후 로그인해 주세요');
+    } finally {
+      setSignupBusy(false);
+    }
   };
 
   // 아이디 찾기 (v1.9) — 가입 이메일로
@@ -99,7 +106,9 @@ export default function LoginPage() {
         dirty={!!(sId || sPw || sNick || sCode)}
         actions={<>
           <button className="btn btn-ghost" onClick={() => setSignupOpen(false)}>CANCEL</button>
-          <button className="btn btn-dark" onClick={doSignup}>가입</button>
+          <button className="btn btn-dark" onClick={doSignup} disabled={signupBusy}>
+            {signupBusy ? '가입 중…' : '가입'}
+          </button>
         </>}>
         <div style={{ display: 'grid', gap: 9 }}>
           <KInput placeholder={mock ? '아이디' : '이메일 (아이디)'} value={sId} onChange={e => setSId(e.target.value)} />
